@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import secrets
 from collections import deque
 
-# Variables
+# Configuration
 PORT = 8443
 CERT_FILE = "cert.pem"
 KEY_FILE = "key.pem"
@@ -347,12 +347,30 @@ def stream_stats():
 
     return Response(generate(), content_type='text/event-stream')
 
-def run_flask_app():
-    """Run the Flask web interface on a different port."""
-    app.run(host="0.0.0.0", port=5001)
+@app.route("/start_server", methods=["POST"])
+def start_server():
+    """Start the server with user-specified exposure settings."""
+    username = request.headers.get("X-Username", "").strip()
+    challenge = request.headers.get("X-Challenge", "").strip()
+    response = request.headers.get("X-Response", "").strip()
+    expose_externally = request.json.get("expose_externally", False)
 
-def run_server():
-    httpd = HTTPServer(('0.0.0.0', PORT), BaseHTTPRequestHandler)
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Authentication failed"}), 403
+
+    # Start the server with the specified exposure setting
+    host = "0.0.0.0" if expose_externally else "127.0.0.1"
+    threading.Thread(target=run_server, args=(host,)).start()
+
+    return jsonify({"message": f"Server started on {host}:{PORT}"}), 200
+
+def run_server(host):
+    """Run the HTTPS server."""
+    httpd = HTTPServer((host, PORT), BaseHTTPRequestHandler)
 
     # Create an SSL context
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -361,14 +379,9 @@ def run_server():
     # Wrap the socket with SSL
     httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
 
-    print(f"Starting HTTPS server on port {PORT}...")
+    print(f"Starting HTTPS server on {host}:{PORT}...")
     httpd.serve_forever()
 
 if __name__ == "__main__":
-    # Start the Flask web interface in a separate thread
-    flask_thread = threading.Thread(target=run_flask_app)
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    # Start the HTTPS server
-    run_server()
+    # Start the Flask web interface
+    app.run(host="127.0.0.1", port=5001)
