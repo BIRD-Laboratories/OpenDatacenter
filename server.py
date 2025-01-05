@@ -182,6 +182,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         script_success = False
         slurm_job_id = None
+        nodes = []
         if docker_repo and node_count:
             pull_success = True
             with open(ASSIGNED_NODES_FILE, 'r') as nodes_file:
@@ -214,6 +215,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Clean up the temporary script
         os.remove(temp_script_path)
 
+        # Include the FTP server URL in the response
+        ftp_server_url = f"ftp://{nodes[0]}" if nodes else "ftp://localhost"
+
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -228,9 +232,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "username": username,
                 "password_hash": password_hash,
                 "nodes": ",".join(nodes)
-            }
+            },
+            "ftp_server_url": ftp_server_url  # Add FTP server URL to the response
         }).encode())
-
+        
 def run_server():
     httpd = HTTPServer(('0.0.0.0', PORT), RequestHandler)
     httpd.socket = ssl.wrap_socket(httpd.socket, certfile=CERT_FILE, keyfile=KEY_FILE, server_side=True)
