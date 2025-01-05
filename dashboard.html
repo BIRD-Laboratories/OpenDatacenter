@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Stats Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .chart-container {
+            width: 80%;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>System Stats Dashboard</h1>
+    <div class="chart-container">
+        <canvas id="cpuChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="memoryChart"></canvas>
+    </div>
+
+    <script>
+        // Data from Flask
+        const data = {{ data | tojson | safe }};
+
+        // CPU Usage Chart
+        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+        new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: data.timestamps,
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                    data: data.cpu_usage,
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 2,
+                    fill: false,
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'CPU Usage (%)'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Memory Usage Chart
+        const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+        new Chart(memoryCtx, {
+            type: 'line',
+            data: {
+                labels: data.timestamps,
+                datasets: [{
+                    label: 'Memory Usage (%)',
+                    data: data.memory_usage,
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 2,
+                    fill: false,
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Memory Usage (%)'
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
