@@ -14,13 +14,20 @@ read_config() {
     while IFS='=' read -r key value; do
         case "$key" in
             CENTRAL_SERVER_IP) CENTRAL_SERVER_IP="$value" ;;
-            ASSIGNED_NODES) IFS=',' read -r -a ASSIGNED_NODES <<< "$value" ;;
             WEB_DIR) WEB_DIR="$value" ;;
             PASSWORD_FILE) PASSWORD_FILE="$value" ;;
             CERT_FILE) CERT_FILE="$value" ;;
             KEY_FILE) KEY_FILE="$value" ;;
         esac
     done < "$CONFIG_FILE"
+}
+
+# Function to discover node IPs on the local network
+discover_node_ips() {
+    echo "Discovering node IPs on the local network..."
+    local network_range="192.168.1.0/24"  # Adjust this to match your network range
+    ASSIGNED_NODES=($(nmap -sn $network_range | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | grep -v "$CENTRAL_SERVER_IP"))
+    echo "Discovered nodes: ${ASSIGNED_NODES[@]}"
 }
 
 # Function to install dependencies on the central server
@@ -88,6 +95,7 @@ start_https_server() {
 # Main script
 echo "Starting system setup..."
 read_config
+discover_node_ips
 setup_central_server
 setup_assigned_nodes
 start_https_server
