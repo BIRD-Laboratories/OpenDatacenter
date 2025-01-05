@@ -18,6 +18,7 @@ read_config() {
             PASSWORD_FILE) PASSWORD_FILE="$value" ;;
             CERT_FILE) CERT_FILE="$value" ;;
             KEY_FILE) KEY_FILE="$value" ;;
+            CLIENT_USERS_FILE) CLIENT_USERS_FILE="$value" ;;
         esac
     done < "$CONFIG_FILE"
 }
@@ -28,6 +29,30 @@ discover_node_ips() {
     local network_range="192.168.1.0/24"  # Adjust this to match your network range
     ASSIGNED_NODES=($(nmap -sn $network_range | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | grep -v "$CENTRAL_SERVER_IP"))
     echo "Discovered nodes: ${ASSIGNED_NODES[@]}"
+}
+
+# Function to create client users from a text file
+create_client_users() {
+    echo "Creating client users from file: $CLIENT_USERS_FILE..."
+    if [[ ! -f "$CLIENT_USERS_FILE" ]]; then
+        echo "Error: Client users file '$CLIENT_USERS_FILE' not found."
+        exit 1
+    fi
+
+    while IFS= read -r user; do
+        # Skip empty lines
+        if [[ -z "$user" ]]; then
+            continue
+        fi
+
+        # Create the user with no login shell
+        if id "$user" &>/dev/null; then
+            echo "User '$user' already exists. Skipping."
+        else
+            sudo useradd -m -s /usr/sbin/nologin "$user"
+            echo "User '$user' created."
+        fi
+    done < "$CLIENT_USERS_FILE"
 }
 
 # Function to install dependencies on the central server
@@ -44,6 +69,10 @@ setup_central_server() {
     echo "Creating web directory..."
     sudo mkdir -p "$WEB_DIR"
     sudo chmod 755 "$WEB_DIR"
+
+    # Set ownership of the web directory to root
+    sudo chown root:root "$WEB_DIR"
+    sudo chmod 700 "$WEB_DIR"  # Only root can read/write/execute
 
     # Configure Nginx
     echo "Configuring Nginx..."
@@ -65,10 +94,23 @@ EOF"
     sudo ln -s /etc/nginx/sites-available/ftp /etc/nginx/sites-enabled/
     sudo systemctl reload nginx
 
-    # Create password file
-    echo "Creating password file..."
-    sudo sh -c "echo -n 'username:' >> /etc/nginx/.htpasswd"
-    sudo sh -c "openssl passwd -apr1 >> /etc/nginx/.htpasswd"
+    # Create password file for Nginx basic auth
+    echo "Creating password file for Nginx..."
+    sudo touch /etc/nginx/.htpasswd
+    sudo chown root:root /etc/nginx/.htpasswd
+    sudo chmod 600 /etc/nginx/.htpasswd  # Only root can read/write
+
+    # Add client users to the password file
+    while IFS= read -r user; do
+        # Skip empty lines
+        if [[ -z "$user" ]]; then
+            continue
+        fi
+
+        echo "Adding user '$user' to Nginx password file..."
+        sudo sh -c "echo -n '$user:' >> /etc/nginx/.htpasswd"
+        sudo sh -c "openssl passwd -apr1 >> /etc/nginx/.htpasswd"
+    done < "$CLIENT_USERS_FILE"
 
     echo "Central server setup complete."
 }
@@ -96,6 +138,7 @@ start_job_manager() {
 echo "Starting system setup..."
 read_config
 discover_node_ips
+create_client_users
 setup_central_server
 setup_assigned_nodes
 start_job_manager
