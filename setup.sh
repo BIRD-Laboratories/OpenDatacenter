@@ -85,11 +85,11 @@ setup_assigned_nodes() {
     done
 }
 
-# Function to start the HTTPS server
-start_https_server() {
-    echo "Starting HTTPS server..."
-    ./job_manager.sh &
-    echo "HTTPS server is running on port 8443."
+# Function to start the job manager (Python program)
+start_job_manager() {
+    echo "Starting job manager..."
+    python3 server.py &
+    echo "Job manager is running."
 }
 
 # Main script
@@ -98,5 +98,5 @@ read_config
 discover_node_ips
 setup_central_server
 setup_assigned_nodes
-start_https_server
+start_job_manager
 echo "System setup complete."
