@@ -178,8 +178,10 @@ handle_client() {
     }"
 }
 
-# Start the HTTPS server
+# Start the HTTPS server and continuously listen for connections
 echo "Starting HTTPS server on port $PORT..."
-openssl s_server -accept $PORT -cert "$CERT_FILE" -key "$KEY_FILE" -www -quiet | while read -r line; do
-    handle_client
+while true; do
+    openssl s_server -accept $PORT -cert "$CERT_FILE" -key "$KEY_FILE" -www -quiet | while read -r line; do
+        handle_client
+    done
 done
