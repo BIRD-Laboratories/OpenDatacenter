@@ -72,8 +72,8 @@ def stream():
     return Response(generate(), content_type='text/plain')
 
 def run_flask_app():
-    """Run the Flask web interface on port 5000."""
-    app.run(host="0.0.0.0", port=5000)
+    """Run the Flask web interface on port 5001."""
+    app.run(host="0.0.0.0", port=5001)
 
 def is_client_registered(username, password_hash):
     """Check if the client is registered."""
@@ -238,7 +238,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         
 def run_server():
     httpd = HTTPServer(('0.0.0.0', PORT), RequestHandler)
-    httpd.socket = ssl.wrap_socket(httpd.socket, certfile=CERT_FILE, keyfile=KEY_FILE, server_side=True)
+
+    # Create an SSL context
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+
+    # Wrap the socket with SSL
+    httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+
     print(f"Starting HTTPS server on port {PORT}...")
     httpd.serve_forever()
 
