@@ -3,30 +3,36 @@ import subprocess
 import threading
 import time
 import json
-import csv
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import ssl
-import tempfile
-import re
-from flask import Flask, render_template, jsonify, request, Response, send_file, abort
-import pandas as pd
+from flask import Flask, render_template, jsonify, request, Response, send_file
+import hashlib
+import hmac
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import secrets
+from collections import deque
 
 # Variables
 PORT = 8443
 CERT_FILE = "cert.pem"
 KEY_FILE = "key.pem"
-CSV_FILE = "/var/www/ftp/system_stats.csv"  # Save CSV to the web-accessible directory
-PASSWORD_FILE = "registered_clients.txt"    # File containing registered password hashes (format: username:password_hash)
+PASSWORD_FILE = "registered_clients.txt"  # File containing registered client credentials (format: username:salted_hash:salt:role)
 ACTIVATION_LOG = "/var/www/ftp/activation_log.txt"  # Log file in the web-accessible directory
 ASSIGNED_NODES_FILE = "assigned_nodes.txt"  # File containing assigned node IPs
-WEB_DIR = "/var/www/ftp"                    # Web-accessible directory
-UPLOAD_DIR = "/var/www/ftp/uploads"         # Directory for uploaded files
+WEB_DIR = "/var/www/ftp"  # Web-accessible directory
+UPLOAD_DIR = "/var/www/ftp/uploads"  # Directory for uploaded files
+CHROOT_BASE = "/var/www/ftp/chroot"  # Base directory for chroot environments
+JOBS_FILE = "jobs.txt"  # File to store job submissions
 
 # Ensure the web directory exists
 os.makedirs(WEB_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(CHROOT_BASE, exist_ok=True)
 os.chmod(WEB_DIR, 0o755)
 os.chmod(UPLOAD_DIR, 0o755)
+os.chmod(CHROOT_BASE, 0o755)
 
 # Generate SSL certificates if they don't exist
 if not os.path.exists(CERT_FILE) or not os.path.exists(KEY_FILE):
@@ -41,62 +47,199 @@ if not os.path.exists(CERT_FILE) or not os.path.exists(KEY_FILE):
 # Flask app for the web interface
 app = Flask(__name__)
 
+# Job queue and status tracking
+jobs = deque()
+job_status = {}
+
+# Helper function to hash passwords with a salt
+def hash_password(password, salt=None):
+    if salt is None:
+        salt = secrets.token_bytes(16)  # Generate a random salt
+    salted_password = salt + password.encode()
+    return hashlib.sha256(salted_password).hexdigest(), salt
+
+# Helper function to verify a challenge-response
+def verify_challenge_response(username, challenge, response):
+    with open(PASSWORD_FILE, "r") as f:
+        for line in f:
+            parts = line.strip().split(":")
+            if len(parts) == 4 and parts[0] == username:
+                stored_hash = parts[1]
+                salt = bytes.fromhex(parts[2])
+                break
+        else:
+            return False  # User not found
+
+    # Recompute the expected response
+    expected_response = hmac.new(salt + stored_hash.encode(), challenge, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected_response, response)
+
+# Helper function to create a chroot environment for the user
+def create_chroot_environment(username):
+    user_chroot_dir = os.path.join(CHROOT_BASE, username)
+    os.makedirs(user_chroot_dir, exist_ok=True)
+
+    # Create minimal directories and copy required binaries
+    for dir_name in ["bin", "lib", "lib64", "usr", "etc"]:
+        os.makedirs(os.path.join(user_chroot_dir, dir_name), exist_ok=True)
+
+    # Copy required binaries and libraries
+    binaries = ["/bin/bash", "/bin/ls", "/bin/python3"]
+    for binary in binaries:
+        subprocess.run(["cp", binary, os.path.join(user_chroot_dir, "bin")], check=True)
+        for line in subprocess.run(["ldd", binary], stdout=subprocess.PIPE, text=True).stdout.splitlines():
+            if "=>" in line:
+                lib_path = line.split()[2]
+                lib_dir = os.path.dirname(lib_path)
+                os.makedirs(os.path.join(user_chroot_dir, lib_dir), exist_ok=True)
+                subprocess.run(["cp", lib_path, os.path.join(user_chroot_dir, lib_dir)], check=True)
+
+    # Set permissions
+    os.chmod(user_chroot_dir, 0o755)
+
+# Helper function to derive a symmetric key from a password
+def derive_key(password, salt):
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    return kdf.derive(password.encode())
+
+# Helper function to encrypt a file using a symmetric key
+def encrypt_file(file_path, key):
+    cipher_suite = Fernet(Fernet(key))
+    with open(file_path, "rb") as f:
+        file_data = f.read()
+    encrypted_data = cipher_suite.encrypt(file_data)
+    with open(file_path, "wb") as f:
+        f.write(encrypted_data)
+
+# Helper function to decrypt a file using a symmetric key
+def decrypt_file(file_path, key):
+    cipher_suite = Fernet(Fernet(key))
+    with open(file_path, "rb") as f:
+        encrypted_data = f.read()
+    decrypted_data = cipher_suite.decrypt(encrypted_data)
+    with open(file_path, "wb") as f:
+        f.write(decrypted_data)
+
+# Helper function to collect live system stats
+def collect_live_stats():
+    stats_data = []
+    with open(ASSIGNED_NODES_FILE, 'r') as nodes_file:
+        for node in nodes_file:
+            node = node.strip()
+            if not node:
+                continue
+            try:
+                # Collect CPU and memory usage
+                cpu_mem = subprocess.check_output(
+                    ["ssh", node, "ps -A -o %cpu,%mem | awk '{cpu+=$1; mem+=$2} END {print cpu, mem}'"]
+                ).decode().strip()
+                cpu_usage, memory_usage = cpu_mem.split()
+
+                # Collect process count
+                process_count = subprocess.check_output(
+                    ["ssh", node, "ps -A --no-headers | wc -l"]
+                ).decode().strip()
+
+                # Get current timestamp
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+                # Append stats to the list
+                stats_data.append({
+                    "Node": node,
+                    "Timestamp": timestamp,
+                    "CPU(%)": cpu_usage,
+                    "Memory(%)": memory_usage,
+                    "Processes": process_count
+                })
+            except subprocess.CalledProcessError as e:
+                print(f"Error collecting stats from {node}: {e}")
+    return stats_data
+
 @app.route("/")
 def dashboard():
     """Render the dashboard with server stats."""
-    try:
-        # Read the CSV file into a Pandas DataFrame
-        stats_df = pd.read_csv(CSV_FILE)
-        # Convert the DataFrame to HTML for rendering
-        stats_html = stats_df.to_html(index=False)
-    except Exception as e:
-        stats_html = f"<p>Error loading stats: {e}</p>"
-    return render_template("dashboard.html", stats_table=stats_html)
+    return render_template("dashboard.html")
 
-@app.route("/stats")
-def stats():
-    """Serve system stats in JSON format."""
-    try:
-        stats_df = pd.read_csv(CSV_FILE)
-        return jsonify(stats_df.to_dict(orient='records'))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/register", methods=["POST"])
+def register():
+    """Register a new user."""
+    username = request.json.get("username", "").strip()
+    password = request.json.get("password", "").strip()
 
-@app.route("/nodes")
-def nodes():
-    """Serve the list of nodes in JSON format."""
-    try:
-        with open(ASSIGNED_NODES_FILE, 'r') as f:
-            nodes = [line.strip() for line in f if line.strip()]
-        return jsonify({"nodes": nodes})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
 
-@app.route("/stream", methods=["POST"])
-def stream():
-    """Execute a command and stream the output."""
-    data = request.json
-    command = data.get("command")
-    node = data.get("node")
+    # Hash the password with a salt
+    password_hash, salt = hash_password(password)
 
-    def generate():
-        if node:
-            ssh_command = f"ssh {node} {command}"
-        else:
-            ssh_command = command
+    # Save the user's credentials
+    with open(PASSWORD_FILE, "a") as f:
+        f.write(f"{username}:{password_hash}:{salt.hex()}:client\n")
 
-        process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return jsonify({"message": "User registered successfully"}), 200
 
-        for line in process.stdout:
-            yield line
-        for line in process.stderr:
-            yield line
+@app.route("/get_challenge", methods=["GET"])
+def get_challenge():
+    """Generate a challenge for the user."""
+    username = request.headers.get("X-Username", "").strip()
 
-    return Response(generate(), content_type='text/plain')
+    if not username:
+        return jsonify({"error": "Username is required"}), 400
+
+    # Generate a random challenge
+    challenge = secrets.token_bytes(16)
+    return jsonify({"challenge": challenge.hex()}), 200
+
+@app.route("/request_key_change", methods=["POST"])
+def request_key_change():
+    """Handle a request to change the decryption key."""
+    username = request.headers.get("X-Username", "").strip()
+    challenge = request.headers.get("X-Challenge", "").strip()
+    response = request.headers.get("X-Response", "").strip()
+
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Authentication failed"}), 403
+
+    # Generate a new encryption key
+    new_key = Fernet.generate_key()
+
+    # Re-encrypt the user's files with the new key
+    user_dir = os.path.join(CHROOT_BASE, username)
+    for root, _, files in os.walk(user_dir):
+        for file in files:
+            file_path = os.path.join(root, file)
+            with open(file_path, "rb") as f:
+                encrypted_data = f.read()
+            cipher_suite = Fernet(new_key)
+            decrypted_data = cipher_suite.decrypt(encrypted_data)
+            with open(file_path, "wb") as f:
+                f.write(decrypted_data)
+
+    return jsonify({"message": "Key change successful", "new_key": new_key.decode()}), 200
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
-    """Handle file uploads."""
+    """Handle file uploads (restricted to clients)."""
+    username = request.headers.get("X-Username", "").strip()
+    challenge = request.headers.get("X-Challenge", "").strip()
+    response = request.headers.get("X-Response", "").strip()
+
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Authentication failed"}), 403
+
     if "file" not in request.files:
         return jsonify({"error": "No file part"}), 400
 
@@ -104,175 +247,112 @@ def upload_file():
     if file.filename == "":
         return jsonify({"error": "No selected file"}), 400
 
-    # Save the file to the upload directory
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    # Create a chroot environment for the user if it doesn't exist
+    create_chroot_environment(username)
+
+    # Save the file to the user's chroot directory
+    user_chroot_dir = os.path.join(CHROOT_BASE, username)
+    file_path = os.path.join(user_chroot_dir, file.filename)
     file.save(file_path)
-    return jsonify({"message": "File uploaded successfully", "file_path": file_path}), 200
 
-@app.route("/download")
-def download_file():
-    """Serve a file for download."""
+    # Encrypt the file using the user's password hash as the key
+    key = derive_key(request.headers.get("X-Response", ""), secrets.token_bytes(16))
+    encrypt_file(file_path, key)
+
+    return jsonify({"message": "File uploaded and encrypted successfully", "file_path": file_path}), 200
+
+@app.route("/submit_job", methods=["POST"])
+def submit_job():
+    """Submit a job for processing."""
+    username = request.headers.get("X-Username", "").strip()
+    challenge = request.headers.get("X-Challenge", "").strip()
+    response = request.headers.get("X-Response", "").strip()
+
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Authentication failed"}), 403
+
+    job_data = request.json.get("job_data", "")
+    if not job_data:
+        return jsonify({"error": "Job data is required"}), 400
+
+    # Add the job to the queue
+    job_id = len(jobs) + 1
+    jobs.append({"job_id": job_id, "username": username, "job_data": job_data})
+    job_status[job_id] = "pending"
+
+    return jsonify({"message": "Job submitted successfully", "job_id": job_id}), 200
+
+@app.route("/job_status/<int:job_id>", methods=["GET"])
+def get_job_status(job_id):
+    """Get the status of a job."""
+    username = request.headers.get("X-Username", "").strip()
+    challenge = request.headers.get("X-Challenge", "").strip()
+    response = request.headers.get("X-Response", "").strip()
+
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Authentication failed"}), 403
+
+    if job_id not in job_status:
+        return jsonify({"error": "Job not found"}), 404
+
+    return jsonify({"job_id": job_id, "status": job_status[job_id]}), 200
+
+@app.route("/stats")
+def stats():
+    """Serve system stats in JSON format (restricted to clients)."""
+    username = request.headers.get('X-Username', '').strip()
+    challenge = request.headers.get('X-Challenge', '').strip()
+    response = request.headers.get('X-Response', '').strip()
+
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Unauthorized access"}), 403
+
     try:
-        # Get the file path from the query parameter
-        file_path = request.args.get("file_path")
-        if not file_path:
-            return jsonify({"error": "File path is required"}), 400
-
-        # Validate the file path
-        if not os.path.exists(file_path):
-            return jsonify({"error": "File not found"}), 404
-
-        # Send the file for download
-        return send_file(file_path, as_attachment=True)
+        stats_data = collect_live_stats()
+        return jsonify(stats_data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/stream_stats")
+def stream_stats():
+    """Stream live system stats (restricted to clients)."""
+    username = request.headers.get('X-Username', '').strip()
+    challenge = request.headers.get('X-Challenge', '').strip()
+    response = request.headers.get('X-Response', '').strip()
+
+    if not username or not challenge or not response:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    # Verify the challenge-response
+    if not verify_challenge_response(username, bytes.fromhex(challenge), response):
+        return jsonify({"error": "Unauthorized access"}), 403
+
+    def generate():
+        while True:
+            stats_data = collect_live_stats()
+            yield f"data: {json.dumps(stats_data)}\n\n"
+            time.sleep(10)  # Update stats every 10 seconds
+
+    return Response(generate(), content_type='text/event-stream')
+
 def run_flask_app():
     """Run the Flask web interface on a different port."""
-    app.run(host="0.0.0.0", port=5001)  # Changed to port 5001
-
-def is_client_registered(username, password_hash):
-    """Check if the client is registered."""
-    with open(PASSWORD_FILE, 'r') as f:
-        for line in f:
-            if line.strip() == f"{username}:{password_hash}":
-                return True
-    return False
-
-def log_activation(username):
-    """Log client activation."""
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    with open(ACTIVATION_LOG, 'a') as f:
-        f.write(f"{timestamp},{username}\n")
-
-def collect_stats():
-    """Collect system stats from assigned nodes and format as CSV."""
-    while True:
-        with open(CSV_FILE, 'w') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(["Node", "Timestamp", "CPU(%)", "Memory(%)", "Processes"])
-            with open(ASSIGNED_NODES_FILE, 'r') as nodes_file:
-                for node in nodes_file:
-                    node = node.strip()
-                    if not node:
-                        continue
-                    try:
-                        # Collect CPU and memory usage
-                        cpu_mem = subprocess.check_output(
-                            ["ssh", node, "ps -A -o %cpu,%mem | awk '{cpu+=$1; mem+=$2} END {print cpu, mem}'"]
-                        ).decode().strip()
-                        cpu_usage, memory_usage = cpu_mem.split()
-
-                        # Collect process count
-                        process_count = subprocess.check_output(
-                            ["ssh", node, "ps -A --no-headers | wc -l"]
-                        ).decode().strip()
-
-                        # Get current timestamp
-                        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-
-                        # Write stats to CSV
-                        writer.writerow([node, timestamp, cpu_usage, memory_usage, process_count])
-                    except subprocess.CalledProcessError as e:
-                        print(f"Error collecting stats from {node}: {e}")
-        time.sleep(10)  # Update stats every 10 seconds
-
-def execute_interactive_command(command, time_limit):
-    """Execute a command interactively with a time limit."""
-    def target():
-        subprocess.run(command, shell=True)
-
-    thread = threading.Thread(target=target)
-    thread.start()
-    thread.join(timeout=time_limit if time_limit != -1 else None)
-    if thread.is_alive():
-        subprocess.run(["pkill", "-f", command])
-        print("Command terminated due to time limit.")
-
-def submit_slurm_job(script_path, docker_repo, assigned_nodes):
-    """Submit a job to SLURM and return the job ID."""
-    try:
-        sbatch_output = subprocess.check_output([
-            "sbatch", "--job-name", f"Docker_Job", "--nodelist", assigned_nodes,
-            "--wrap", f"srun docker run --rm -v {script_path}:/script.sh {docker_repo} bash /script.sh"
-        ]).decode().strip()
-        # Extract the job ID from the output (e.g., "Submitted batch job 12345")
-        job_id = re.search(r"\d+", sbatch_output).group()
-        return job_id
-    except subprocess.CalledProcessError as e:
-        print(f"Error submitting SLURM job: {e}")
-        return None
-
-class RequestHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-        headers = self.headers
-
-        username = headers.get('X-Username', '').strip()
-        password_hash = headers.get('X-Password-Hash', '').strip()
-        docker_repo = headers.get('X-Docker-Repo', '').strip()
-        node_count = headers.get('X-Node-Count', '').strip()
-        time_limit = int(headers.get('X-Time-Limit', '-1').strip())
-
-        if not is_client_registered(username, password_hash):
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "Client not registered"}).encode())
-            return
-
-        log_activation(username)
-
-        # Save the uploaded script to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False) as temp_script:
-            temp_script.write(post_data)
-            temp_script_path = temp_script.name
-
-        print(f"Script saved to {temp_script_path}")
-
-        script_success = False
-        slurm_job_id = None
-        nodes = []
-        if docker_repo and node_count:
-            pull_success = True
-            with open(ASSIGNED_NODES_FILE, 'r') as nodes_file:
-                nodes = [line.strip() for line in nodes_file.readlines()[:int(node_count)]]
-                for node in nodes:
-                    try:
-                        # Relay the script to the job server
-                        subprocess.run(["scp", temp_script_path, f"{node}:/tmp/{os.path.basename(temp_script_path)}"], check=True)
-                        # Pull Docker image on the job server
-                        subprocess.run(["ssh", node, f"docker pull {docker_repo}"], check=True)
-                    except subprocess.CalledProcessError:
-                        pull_success = False
-                        break
-
-            if pull_success:
-                assigned_nodes = ",".join(nodes)
-                slurm_job_id = submit_slurm_job(f"/tmp/{os.path.basename(temp_script_path)}", docker_repo, assigned_nodes)
-                if slurm_job_id:
-                    script_success = True
-        else:
-            with open(temp_script_path, 'r') as f:
-                command = f.read().strip()
-            execute_interactive_command(command, time_limit)
-            script_success = True
-
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({
-            "slurm_job_id": slurm_job_id,
-            "script_success": script_success,
-            "docker_repo": docker_repo,
-            "node_count": node_count,
-            "time_limit": time_limit,
-            "system_stats": open(CSV_FILE, 'r').read(),
-        }).encode())
+    app.run(host="0.0.0.0", port=5001)
 
 def run_server():
-    httpd = HTTPServer(('0.0.0.0', PORT), RequestHandler)
+    httpd = HTTPServer(('0.0.0.0', PORT), BaseHTTPRequestHandler)
 
     # Create an SSL context
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -289,11 +369,6 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask_app)
     flask_thread.daemon = True
     flask_thread.start()
-
-    # Start the stats collection thread
-    stats_thread = threading.Thread(target=collect_stats)
-    stats_thread.daemon = True
-    stats_thread.start()
 
     # Start the HTTPS server
     run_server()
