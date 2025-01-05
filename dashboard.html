@@ -3,95 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Stats Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>Server Stats Dashboard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 20px;
         }
+        h1 {
+            color: #333;
+        }
         .chart-container {
             width: 80%;
-            margin: 0 auto;
+            margin: 20px auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
         }
     </style>
+    <!-- Include Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Function to fetch server stats from the server
+        async function fetchStats() {
+            const response = await fetch("/stats");
+            const data = await response.json();
+            return data;
+        }
+
+        // Function to update the charts and table
+        async function updateDashboard() {
+            const stats = await fetchStats();
+
+            // Update the table
+            const tableBody = document.querySelector("#stats-table tbody");
+            tableBody.innerHTML = stats.map(row => `
+                <tr>
+                    <td>${row.Node}</td>
+                    <td>${row.Timestamp}</td>
+                    <td>${row["CPU(%)"]}</td>
+                    <td>${row["Memory(%)"]}</td>
+                    <td>${row.Processes}</td>
+                </tr>
+            `).join("");
+
+            // Update the charts
+            updateChart(cpuChart, stats.map(row => row["CPU(%)"]), "CPU Usage (%)");
+            updateChart(memoryChart, stats.map(row => row["Memory(%)"]), "Memory Usage (%)");
+            updateChart(processChart, stats.map(row => row.Processes), "Process Count");
+        }
+
+        // Function to update a chart
+        function updateChart(chart, data, label) {
+            chart.data.labels = data.map((_, index) => `Node ${index + 1}`);
+            chart.data.datasets[0].data = data;
+            chart.data.datasets[0].label = label;
+            chart.update();
+        }
+
+        // Initialize the dashboard when the page loads
+        document.addEventListener("DOMContentLoaded", () => {
+            // Initialize charts
+            const ctx1 = document.getElementById("cpuChart").getContext("2d");
+            const ctx2 = document.getElementById("memoryChart").getContext("2d");
+            const ctx3 = document.getElementById("processChart").getContext("2d");
+
+            const chartOptions = {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                    },
+                },
+            };
+
+            cpuChart = new Chart(ctx1, {
+                type: "bar",
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: "CPU Usage (%)",
+                        data: [],
+                        backgroundColor: "rgba(54, 162, 235, 0.5)",
+                        borderColor: "rgba(54, 162, 235, 1)",
+                        borderWidth: 1,
+                    }],
+                },
+                options: chartOptions,
+            });
+
+            memoryChart = new Chart(ctx2, {
+                type: "bar",
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: "Memory Usage (%)",
+                        data: [],
+                        backgroundColor: "rgba(255, 99, 132, 0.5)",
+                        borderColor: "rgba(255, 99, 132, 1)",
+                        borderWidth: 1,
+                    }],
+                },
+                options: chartOptions,
+            });
+
+            processChart = new Chart(ctx3, {
+                type: "bar",
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: "Process Count",
+                        data: [],
+                        backgroundColor: "rgba(75, 192, 192, 0.5)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1,
+                    }],
+                },
+                options: chartOptions,
+            });
+
+            // Update the dashboard every 5 seconds
+            setInterval(updateDashboard, 5000);
+            updateDashboard(); // Initial update
+        });
+    </script>
 </head>
 <body>
-    <h1>System Stats Dashboard</h1>
+    <h1>Server Stats Dashboard</h1>
+
+    <!-- CPU Usage Chart -->
     <div class="chart-container">
         <canvas id="cpuChart"></canvas>
     </div>
+
+    <!-- Memory Usage Chart -->
     <div class="chart-container">
         <canvas id="memoryChart"></canvas>
     </div>
 
-    <script>
-        // Data from Flask
-        const data = {{ data | tojson | safe }};
+    <!-- Process Count Chart -->
+    <div class="chart-container">
+        <canvas id="processChart"></canvas>
+    </div>
 
-        // CPU Usage Chart
-        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
-        new Chart(cpuCtx, {
-            type: 'line',
-            data: {
-                labels: data.timestamps,
-                datasets: [{
-                    label: 'CPU Usage (%)',
-                    data: data.cpu_usage,
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    borderWidth: 2,
-                    fill: false,
-                }]
-            },
-            options: {
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'CPU Usage (%)'
-                        }
-                    }
-                }
-            }
-        });
-
-        // Memory Usage Chart
-        const memoryCtx = document.getElementById('memoryChart').getContext('2d');
-        new Chart(memoryCtx, {
-            type: 'line',
-            data: {
-                labels: data.timestamps,
-                datasets: [{
-                    label: 'Memory Usage (%)',
-                    data: data.memory_usage,
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 2,
-                    fill: false,
-                }]
-            },
-            options: {
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Memory Usage (%)'
-                        }
-                    }
-                }
-            }
-        });
-    </script>
+    <!-- Stats Table -->
+    <h2>System Stats</h2>
+    <table id="stats-table">
+        <thead>
+            <tr>
+                <th>Node</th>
+                <th>Timestamp</th>
+                <th>CPU (%)</th>
+                <th>Memory (%)</th>
+                <th>Processes</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Rows will be populated by JavaScript -->
+        </tbody>
+    </table>
 </body>
 </html>
