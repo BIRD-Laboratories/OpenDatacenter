@@ -29,33 +29,22 @@
             margin-bottom: 20px;
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
         }
 
-        th, td {
-            padding: 12px;
-            border: 1px solid #ddd;
-            text-align: left;
+        .col {
+            flex: 1;
         }
 
-        th {
-            background-color: #2c3e50;
-            color: #fff;
-            font-weight: 500;
+        .col-2 {
+            flex: 2;
         }
 
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-
-        tr:hover {
-            background-color: #f1f1f1;
+        .col-1 {
+            flex: 1;
         }
 
         #command-output {
@@ -99,18 +88,9 @@
         }
 
         .dark-mode .chart-container,
-        .dark-mode table,
         .dark-mode #command-output {
             background-color: #2c3e50;
             color: #f8f9fa;
-        }
-
-        .dark-mode th {
-            background-color: #1a252f;
-        }
-
-        .dark-mode tr:hover {
-            background-color: #34495e;
         }
 
         .dark-mode .btn-custom {
@@ -120,20 +100,6 @@
         .dark-mode .btn-custom:hover {
             background-color: #2c3e50;
         }
-
-        .ftp-viewer {
-            margin-top: 20px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .ftp-viewer iframe {
-            width: 100%;
-            height: 400px;
-            border: none;
-        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
@@ -142,25 +108,6 @@
             const response = await fetch("/stats");
             const data = await response.json();
             return data;
-        }
-
-        // Function to fetch the list of nodes from the server
-        async function fetchNodes() {
-            // Placeholder for now
-            return ["192.168.1.101", "192.168.1.102"];
-        }
-
-        // Function to update the node dropdown
-        async function updateNodeList() {
-            const nodes = await fetchNodes();
-            const nodeSelect = document.querySelector("#node-select");
-            nodeSelect.innerHTML = '<option value="">Local</option>';
-            nodes.forEach(node => {
-                const option = document.createElement("option");
-                option.value = node;
-                option.textContent = node;
-                nodeSelect.appendChild(option);
-            });
         }
 
         // Function to update the charts and table
@@ -217,6 +164,16 @@
                 outputDiv.innerHTML += text;
                 outputDiv.scrollTop = outputDiv.scrollHeight; // Auto-scroll
             }
+        }
+
+        // Function to download a file
+        function downloadFile() {
+            const filePath = document.querySelector("#file-path").value;
+            if (!filePath) {
+                alert("Please enter a file path.");
+                return;
+            }
+            window.location.href = `/download?file_path=${encodeURIComponent(filePath)}`;
         }
 
         // Toggle dark mode
@@ -285,9 +242,6 @@
                 options: chartOptions,
             });
 
-            // Update the node list
-            updateNodeList();
-
             // Update the dashboard every 5 seconds
             setInterval(updateDashboard, 5000);
             updateDashboard(); // Initial update
@@ -299,57 +253,47 @@
         <h1>Server Stats Dashboard</h1>
         <button class="btn-custom" onclick="toggleDarkMode()">Toggle Dark Mode</button>
 
-        <!-- CPU Usage Chart -->
-        <div class="chart-container">
-            <canvas id="cpuChart"></canvas>
+        <!-- Charts and Server Input -->
+        <div class="row">
+            <!-- Left Column (2 charts) -->
+            <div class="col col-2">
+                <div class="chart-container">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="memoryChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Right Column (1 chart and server input) -->
+            <div class="col col-1">
+                <div class="chart-container">
+                    <canvas id="processChart"></canvas>
+                </div>
+
+                <!-- Server Input -->
+                <h2>Execute Command</h2>
+                <div>
+                    <label for="node-select">Node:</label>
+                    <select id="node-select" class="form-control-custom">
+                        <option value="">Local</option>
+                        <option value="192.168.1.101">Node 1</option>
+                        <option value="192.168.1.102">Node 2</option>
+                    </select>
+                    <input type="text" id="command-input" class="form-control-custom" placeholder="Enter command">
+                    <button class="btn-custom" onclick="executeCommand()">Execute</button>
+                </div>
+
+                <!-- Command Output -->
+                <div id="command-output"></div>
+            </div>
         </div>
 
-        <!-- Memory Usage Chart -->
-        <div class="chart-container">
-            <canvas id="memoryChart"></canvas>
-        </div>
-
-        <!-- Process Count Chart -->
-        <div class="chart-container">
-            <canvas id="processChart"></canvas>
-        </div>
-
-        <!-- Stats Table -->
-        <h2>System Stats</h2>
-        <table id="stats-table">
-            <thead>
-                <tr>
-                    <th>Node</th>
-                    <th>Timestamp</th>
-                    <th>CPU (%)</th>
-                    <th>Memory (%)</th>
-                    <th>Processes</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Rows will be populated by JavaScript -->
-            </tbody>
-        </table>
-
-        <!-- Command Input -->
-        <h2>Execute Command</h2>
-        <div>
-            <label for="node-select">Node:</label>
-            <select id="node-select" class="form-control-custom">
-                <option value="">Local</option>
-                <!-- Node options will be populated by JavaScript -->
-            </select>
-            <input type="text" id="command-input" class="form-control-custom" placeholder="Enter command">
-            <button class="btn-custom" onclick="executeCommand()">Execute</button>
-        </div>
-
-        <!-- Command Output -->
-        <div id="command-output"></div>
-
-        <!-- FTP Server Viewer -->
-        <h2>FTP Server Viewer</h2>
-        <div class="ftp-viewer">
-            <iframe src="ftp://your-ftp-server-url" title="FTP Server Viewer"></iframe>
+        <!-- File Download -->
+        <div style="margin-top: 20px;">
+            <h2>Download File</h2>
+            <input type="text" id="file-path" class="form-control-custom" placeholder="Enter file path">
+            <button class="btn-custom" onclick="downloadFile()">Download</button>
         </div>
     </div>
 </body>
