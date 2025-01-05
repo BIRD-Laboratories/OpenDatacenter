@@ -110,6 +110,26 @@
             return data;
         }
 
+        // Function to fetch the list of nodes from the server
+        async function fetchNodes() {
+            const response = await fetch("/nodes");
+            const data = await response.json();
+            return data.nodes;
+        }
+
+        // Function to update the node dropdown
+        async function updateNodeList() {
+            const nodes = await fetchNodes();
+            const nodeSelect = document.querySelector("#node-select");
+            nodeSelect.innerHTML = '<option value="">Local</option>';
+            nodes.forEach(node => {
+                const option = document.createElement("option");
+                option.value = node;
+                option.textContent = node;
+                nodeSelect.appendChild(option);
+            });
+        }
+
         // Function to update the charts and table
         async function updateDashboard() {
             const stats = await fetchStats();
@@ -163,6 +183,30 @@
                 const text = decoder.decode(value);
                 outputDiv.innerHTML += text;
                 outputDiv.scrollTop = outputDiv.scrollHeight; // Auto-scroll
+            }
+        }
+
+        // Function to upload a file
+        async function uploadFile() {
+            const fileInput = document.querySelector("#file-input");
+            if (!fileInput.files.length) {
+                alert("Please select a file to upload.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const response = await fetch("/upload", {
+                method: "POST",
+                body: formData,
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                alert(result.message);
+            } else {
+                alert(result.error);
             }
         }
 
@@ -242,6 +286,9 @@
                 options: chartOptions,
             });
 
+            // Update the node list
+            updateNodeList();
+
             // Update the dashboard every 5 seconds
             setInterval(updateDashboard, 5000);
             updateDashboard(); // Initial update
@@ -277,8 +324,7 @@
                     <label for="node-select">Node:</label>
                     <select id="node-select" class="form-control-custom">
                         <option value="">Local</option>
-                        <option value="192.168.1.101">Node 1</option>
-                        <option value="192.168.1.102">Node 2</option>
+                        <!-- Node options will be populated by JavaScript -->
                     </select>
                     <input type="text" id="command-input" class="form-control-custom" placeholder="Enter command">
                     <button class="btn-custom" onclick="executeCommand()">Execute</button>
@@ -289,9 +335,13 @@
             </div>
         </div>
 
-        <!-- File Download -->
+        <!-- File Upload and Download -->
         <div style="margin-top: 20px;">
-            <h2>Download File</h2>
+            <h2>File Upload</h2>
+            <input type="file" id="file-input" class="form-control-custom">
+            <button class="btn-custom" onclick="uploadFile()">Upload</button>
+
+            <h2>File Download</h2>
             <input type="text" id="file-path" class="form-control-custom" placeholder="Enter file path">
             <button class="btn-custom" onclick="downloadFile()">Download</button>
         </div>
