@@ -1,6 +1,6 @@
 import os
-import threading
 import subprocess
+import threading
 import time
 import json
 import csv
@@ -25,6 +25,16 @@ WEB_DIR = "/var/www/ftp"                    # Web-accessible directory
 os.makedirs(WEB_DIR, exist_ok=True)
 os.chmod(WEB_DIR, 0o755)
 
+# Generate SSL certificates if they don't exist
+if not os.path.exists(CERT_FILE) or not os.path.exists(KEY_FILE):
+    print("Generating SSL certificates...")
+    subprocess.run([
+        "openssl", "req", "-x509", "-newkey", "rsa:4096",
+        "-keyout", KEY_FILE, "-out", CERT_FILE,
+        "-days", "365", "-nodes", "-subj", "/CN=localhost"
+    ], check=True)
+    print(f"SSL certificates generated: {CERT_FILE}, {KEY_FILE}")
+
 # Flask app for the web interface
 app = Flask(__name__)
 
@@ -46,6 +56,16 @@ def stats():
     try:
         stats_df = pd.read_csv(CSV_FILE)
         return jsonify(stats_df.to_dict(orient='records'))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/nodes")
+def nodes():
+    """Serve the list of nodes in JSON format."""
+    try:
+        with open(ASSIGNED_NODES_FILE, 'r') as f:
+            nodes = [line.strip() for line in f if line.strip()]
+        return jsonify({"nodes": nodes})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -72,8 +92,8 @@ def stream():
     return Response(generate(), content_type='text/plain')
 
 def run_flask_app():
-    """Run the Flask web interface on port 5001."""
-    app.run(host="0.0.0.0", port=5001)
+    """Run the Flask web interface on a different port."""
+    app.run(host="0.0.0.0", port=5001)  # Changed to port 5001
 
 def is_client_registered(username, password_hash):
     """Check if the client is registered."""
@@ -235,7 +255,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             },
             "ftp_server_url": ftp_server_url  # Add FTP server URL to the response
         }).encode())
-        
+
 def run_server():
     httpd = HTTPServer(('0.0.0.0', PORT), RequestHandler)
 
