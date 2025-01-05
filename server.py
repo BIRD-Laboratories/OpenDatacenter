@@ -147,33 +147,35 @@ def log_activation(username):
 
 def collect_stats():
     """Collect system stats from assigned nodes and format as CSV."""
-    with open(CSV_FILE, 'w') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(["Node", "Timestamp", "CPU(%)", "Memory(%)", "Processes"])
-        with open(ASSIGNED_NODES_FILE, 'r') as nodes_file:
-            for node in nodes_file:
-                node = node.strip()
-                if not node:
-                    continue
-                try:
-                    # Collect CPU and memory usage
-                    cpu_mem = subprocess.check_output(
-                        ["ssh", node, "ps -A -o %cpu,%mem | awk '{cpu+=$1; mem+=$2} END {print cpu, mem}'"]
-                    ).decode().strip()
-                    cpu_usage, memory_usage = cpu_mem.split()
+    while True:
+        with open(CSV_FILE, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Node", "Timestamp", "CPU(%)", "Memory(%)", "Processes"])
+            with open(ASSIGNED_NODES_FILE, 'r') as nodes_file:
+                for node in nodes_file:
+                    node = node.strip()
+                    if not node:
+                        continue
+                    try:
+                        # Collect CPU and memory usage
+                        cpu_mem = subprocess.check_output(
+                            ["ssh", node, "ps -A -o %cpu,%mem | awk '{cpu+=$1; mem+=$2} END {print cpu, mem}'"]
+                        ).decode().strip()
+                        cpu_usage, memory_usage = cpu_mem.split()
 
-                    # Collect process count
-                    process_count = subprocess.check_output(
-                        ["ssh", node, "ps -A --no-headers | wc -l"]
-                    ).decode().strip()
+                        # Collect process count
+                        process_count = subprocess.check_output(
+                            ["ssh", node, "ps -A --no-headers | wc -l"]
+                        ).decode().strip()
 
-                    # Get current timestamp
-                    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                        # Get current timestamp
+                        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Write stats to CSV
-                    writer.writerow([node, timestamp, cpu_usage, memory_usage, process_count])
-                except subprocess.CalledProcessError as e:
-                    print(f"Error collecting stats from {node}: {e}")
+                        # Write stats to CSV
+                        writer.writerow([node, timestamp, cpu_usage, memory_usage, process_count])
+                    except subprocess.CalledProcessError as e:
+                        print(f"Error collecting stats from {node}: {e}")
+        time.sleep(10)  # Update stats every 10 seconds
 
 def execute_interactive_command(command, time_limit):
     """Execute a command interactively with a time limit."""
@@ -257,11 +259,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             execute_interactive_command(command, time_limit)
             script_success = True
 
-        collect_stats()
-
-        # Clean up the temporary script
-        os.remove(temp_script_path)
-
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -292,6 +289,11 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask_app)
     flask_thread.daemon = True
     flask_thread.start()
+
+    # Start the stats collection thread
+    stats_thread = threading.Thread(target=collect_stats)
+    stats_thread.daemon = True
+    stats_thread.start()
 
     # Start the HTTPS server
     run_server()
