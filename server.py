@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import ssl
 import tempfile
 import re
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify, request, Response
 import pandas as pd
 
 # Variables
@@ -39,6 +39,37 @@ def dashboard():
     except Exception as e:
         stats_html = f"<p>Error loading stats: {e}</p>"
     return render_template("dashboard.html", stats_table=stats_html)
+
+@app.route("/stats")
+def stats():
+    """Serve system stats in JSON format."""
+    try:
+        stats_df = pd.read_csv(CSV_FILE)
+        return jsonify(stats_df.to_dict(orient='records'))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/stream", methods=["POST"])
+def stream():
+    """Execute a command and stream the output."""
+    data = request.json
+    command = data.get("command")
+    node = data.get("node")
+
+    def generate():
+        if node:
+            ssh_command = f"ssh {node} {command}"
+        else:
+            ssh_command = command
+
+        process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        for line in process.stdout:
+            yield line
+        for line in process.stderr:
+            yield line
+
+    return Response(generate(), content_type='text/plain')
 
 def run_flask_app():
     """Run the Flask web interface on port 5000."""
