@@ -20,10 +20,13 @@ PASSWORD_FILE = "registered_clients.txt"    # File containing registered passwor
 ACTIVATION_LOG = "/var/www/ftp/activation_log.txt"  # Log file in the web-accessible directory
 ASSIGNED_NODES_FILE = "assigned_nodes.txt"  # File containing assigned node IPs
 WEB_DIR = "/var/www/ftp"                    # Web-accessible directory
+UPLOAD_DIR = "/var/www/ftp/uploads"         # Directory for uploaded files
 
 # Ensure the web directory exists
 os.makedirs(WEB_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.chmod(WEB_DIR, 0o755)
+os.chmod(UPLOAD_DIR, 0o755)
 
 # Generate SSL certificates if they don't exist
 if not os.path.exists(CERT_FILE) or not os.path.exists(KEY_FILE):
@@ -91,6 +94,21 @@ def stream():
 
     return Response(generate(), content_type='text/plain')
 
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    """Handle file uploads."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
+    # Save the file to the upload directory
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    file.save(file_path)
+    return jsonify({"message": "File uploaded successfully", "file_path": file_path}), 200
+
 @app.route("/download")
 def download_file():
     """Serve a file for download."""
@@ -156,32 +174,6 @@ def collect_stats():
                     writer.writerow([node, timestamp, cpu_usage, memory_usage, process_count])
                 except subprocess.CalledProcessError as e:
                     print(f"Error collecting stats from {node}: {e}")
-
-def setup_ftp_on_node(node, username, password_hash):
-    """Set up FTP on a job server."""
-    try:
-        # Install vsftpd if not already installed
-        subprocess.run(["ssh", node, "sudo apt-get update && sudo apt-get install -y vsftpd"], check=True)
-
-        # Configure vsftpd
-        subprocess.run([
-            "ssh", node,
-            "echo -e 'anonymous_enable=NO\\nlocal_enable=YES\\nwrite_enable=YES\\nlocal_umask=022\\nchroot_local_user=YES\\nlisten=YES\\nlisten_ipv6=NO' | sudo tee /etc/vsftpd.conf"
-        ], check=True)
-
-        # Restart vsftpd
-        subprocess.run(["ssh", node, "sudo systemctl restart vsftpd"], check=True)
-
-        # Create FTP user and set password
-        subprocess.run(["ssh", node, f"sudo useradd -m -s /bin/bash {username}"], check=True)
-        subprocess.run(["ssh", node, f"echo '{username}:{password_hash}' | sudo chpasswd -e"], check=True)
-
-        # Allow FTP user to access a specific directory
-        subprocess.run(["ssh", node, f"sudo usermod -d /home/{username} {username}"], check=True)
-
-        print(f"FTP server set up on {node} for user {username}")
-    except subprocess.CalledProcessError as e:
-        print(f"Error setting up FTP on {node}: {e}")
 
 def execute_interactive_command(command, time_limit):
     """Execute a command interactively with a time limit."""
@@ -250,8 +242,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                         subprocess.run(["scp", temp_script_path, f"{node}:/tmp/{os.path.basename(temp_script_path)}"], check=True)
                         # Pull Docker image on the job server
                         subprocess.run(["ssh", node, f"docker pull {docker_repo}"], check=True)
-                        # Set up FTP on the job server
-                        setup_ftp_on_node(node, username, password_hash)
                     except subprocess.CalledProcessError:
                         pull_success = False
                         break
@@ -272,9 +262,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Clean up the temporary script
         os.remove(temp_script_path)
 
-        # Include the FTP server URL in the response
-        ftp_server_url = f"ftp://{nodes[0]}" if nodes else "ftp://localhost"
-
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -285,12 +272,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             "node_count": node_count,
             "time_limit": time_limit,
             "system_stats": open(CSV_FILE, 'r').read(),
-            "ftp_credentials": {
-                "username": username,
-                "password_hash": password_hash,
-                "nodes": ",".join(nodes)
-            },
-            "ftp_server_url": ftp_server_url  # Add FTP server URL to the response
         }).encode())
 
 def run_server():
