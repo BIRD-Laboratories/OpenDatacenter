@@ -3,348 +3,248 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Server Stats Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Server Dashboard</title>
     <style>
         body {
-            font-family: 'Roboto', sans-serif;
-            background-color: #f8f9fa;
-            color: #333;
-            margin: 0;
-            padding: 20px;
+            font-family: Arial, sans-serif;
+            margin: 20px;
         }
-
         h1 {
-            color: #2c3e50;
-            font-weight: 700;
-            margin-bottom: 20px;
+            color: #333;
         }
-
-        .chart-container {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            margin-bottom: 20px;
+        .section {
+            margin-bottom: 30px;
         }
-
-        .row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
+        .form-group {
+            margin-bottom: 15px;
         }
-
-        .col {
-            flex: 1;
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
         }
-
-        .col-2 {
-            flex: 2;
-        }
-
-        .col-1 {
-            flex: 1;
-        }
-
-        #command-output {
-            background-color: #fff;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            margin-top: 20px;
-            height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 14px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .btn-custom {
-            background-color: #2c3e50;
-            color: #fff;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-
-        .btn-custom:hover {
-            background-color: #1a252f;
-        }
-
-        .form-control-custom {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+        .form-group input, .form-group textarea {
             width: 100%;
-            margin-bottom: 10px;
+            padding: 8px;
+            box-sizing: border-box;
         }
-
-        .dark-mode {
-            background-color: #1a1a1a;
-            color: #f8f9fa;
+        .form-group button {
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
         }
-
-        .dark-mode .chart-container,
-        .dark-mode #command-output {
-            background-color: #2c3e50;
-            color: #f8f9fa;
+        .form-group button:hover {
+            background-color: #218838;
         }
-
-        .dark-mode .btn-custom {
-            background-color: #34495e;
+        .status-message {
+            margin-top: 10px;
+            color: #333;
         }
-
-        .dark-mode .btn-custom:hover {
-            background-color: #2c3e50;
+        .chart-container {
+            width: 80%;
+            margin: 20px auto;
         }
     </style>
+    <!-- Include Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Server Dashboard</h1>
+
+    <!-- Real-Time Stats Section -->
+    <div class="section">
+        <h2>Real-Time System Stats</h2>
+        <div class="chart-container">
+            <canvas id="stats-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Job Submission Section -->
+    <div class="section">
+        <h2>Submit a Job</h2>
+        <form id="job-form">
+            <div class="form-group">
+                <label for="job-data">Job Data:</label>
+                <textarea id="job-data" name="job-data" rows="4" required></textarea>
+            </div>
+            <div class="form-group">
+                <button type="submit">Submit Job</button>
+            </div>
+        </form>
+        <div class="status-message" id="job-status"></div>
+    </div>
+
+    <!-- File Upload Section -->
+    <div class="section">
+        <h2>Upload a File</h2>
+        <form id="upload-form">
+            <div class="form-group">
+                <label for="file">Select File:</label>
+                <input type="file" id="file" name="file" required>
+            </div>
+            <div class="form-group">
+                <button type="submit">Upload File</button>
+            </div>
+        </form>
+        <div class="status-message" id="upload-status"></div>
+    </div>
+
+    <!-- Key Change Request Section -->
+    <div class="section">
+        <h2>Request Key Change</h2>
+        <form id="key-change-form">
+            <div class="form-group">
+                <button type="submit">Request Key Change</button>
+            </div>
+        </form>
+        <div class="status-message" id="key-change-status"></div>
+    </div>
+
     <script>
-        // Function to fetch server stats from the server
-        async function fetchStats() {
-            const response = await fetch("/stats");
-            const data = await response.json();
-            return data;
-        }
+        // Initialize Chart.js
+        const ctx = document.getElementById("stats-chart").getContext("2d");
+        const statsChart = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: [], // Timestamps will go here
+                datasets: [
+                    {
+                        label: "CPU (%)",
+                        data: [],
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        fill: false,
+                    },
+                    {
+                        label: "Memory (%)",
+                        data: [],
+                        borderColor: "rgba(255, 99, 132, 1)",
+                        fill: false,
+                    },
+                    {
+                        label: "Processes",
+                        data: [],
+                        borderColor: "rgba(54, 162, 235, 1)",
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: "Time",
+                        },
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: "Value",
+                        },
+                    },
+                },
+            },
+        });
 
-        // Function to fetch the list of nodes from the server
-        async function fetchNodes() {
-            const response = await fetch("/nodes");
-            const data = await response.json();
-            return data.nodes;
-        }
+        // Real-Time Stats Streaming
+        const eventSource = new EventSource("/stream_stats");
 
-        // Function to update the node dropdown
-        async function updateNodeList() {
-            const nodes = await fetchNodes();
-            const nodeSelect = document.querySelector("#node-select");
-            nodeSelect.innerHTML = '<option value="">Local</option>';
-            nodes.forEach(node => {
-                const option = document.createElement("option");
-                option.value = node;
-                option.textContent = node;
-                nodeSelect.appendChild(option);
-            });
-        }
+        eventSource.onmessage = function (event) {
+            const stats = JSON.parse(event.data);
+            const timestamps = stats.map(stat => stat.Timestamp);
+            const cpuUsage = stats.map(stat => parseFloat(stat["CPU(%)"]));
+            const memoryUsage = stats.map(stat => parseFloat(stat["Memory(%)"]));
+            const processes = stats.map(stat => parseInt(stat.Processes));
 
-        // Function to update the charts and table
-        async function updateDashboard() {
-            const stats = await fetchStats();
+            // Update the chart data
+            statsChart.data.labels = timestamps;
+            statsChart.data.datasets[0].data = cpuUsage;
+            statsChart.data.datasets[1].data = memoryUsage;
+            statsChart.data.datasets[2].data = processes;
+            statsChart.update();
+        };
 
-            // Update the table
-            const tableBody = document.querySelector("#stats-table tbody");
-            tableBody.innerHTML = stats.map(row => `
-                <tr>
-                    <td>${row.Node}</td>
-                    <td>${row.Timestamp}</td>
-                    <td>${row["CPU(%)"]}</td>
-                    <td>${row["Memory(%)"]}</td>
-                    <td>${row.Processes}</td>
-                </tr>
-            `).join("");
+        // Job Submission
+        const jobForm = document.getElementById("job-form");
+        const jobStatus = document.getElementById("job-status");
 
-            // Update the charts
-            updateChart(cpuChart, stats.map(row => row["CPU(%)"]), "CPU Usage (%)");
-            updateChart(memoryChart, stats.map(row => row["Memory(%)"]), "Memory Usage (%)");
-            updateChart(processChart, stats.map(row => row.Processes), "Process Count");
-        }
+        jobForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const jobData = document.getElementById("job-data").value;
 
-        // Function to update a chart
-        function updateChart(chart, data, label) {
-            chart.data.labels = data.map((_, index) => `Node ${index + 1}`);
-            chart.data.datasets[0].data = data;
-            chart.data.datasets[0].label = label;
-            chart.update();
-        }
-
-        // Function to execute a command
-        async function executeCommand() {
-            const command = document.querySelector("#command-input").value;
-            const node = document.querySelector("#node-select").value;
-            const outputDiv = document.querySelector("#command-output");
-
-            outputDiv.innerHTML = "Executing command...\n";
-
-            const response = await fetch("/stream", {
+            const response = await fetch("/submit_job", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ command, node }),
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Username": "user1", // Replace with actual username
+                    "X-Challenge": "challenge", // Replace with actual challenge
+                    "X-Response": "response", // Replace with actual response
+                },
+                body: JSON.stringify({ job_data: jobData }),
             });
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const text = decoder.decode(value);
-                outputDiv.innerHTML += text;
-                outputDiv.scrollTop = outputDiv.scrollHeight; // Auto-scroll
+            const result = await response.json();
+            if (response.ok) {
+                jobStatus.textContent = `Job submitted successfully. Job ID: ${result.job_id}`;
+            } else {
+                jobStatus.textContent = `Error: ${result.error}`;
             }
-        }
+        });
 
-        // Function to upload a file
-        async function uploadFile() {
-            const fileInput = document.querySelector("#file-input");
-            if (!fileInput.files.length) {
-                alert("Please select a file to upload.");
-                return;
-            }
+        // File Upload
+        const uploadForm = document.getElementById("upload-form");
+        const uploadStatus = document.getElementById("upload-status");
 
+        uploadForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById("file");
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
             const response = await fetch("/upload", {
                 method: "POST",
+                headers: {
+                    "X-Username": "user1", // Replace with actual username
+                    "X-Challenge": "challenge", // Replace with actual challenge
+                    "X-Response": "response", // Replace with actual response
+                },
                 body: formData,
             });
 
             const result = await response.json();
             if (response.ok) {
-                alert(result.message);
+                uploadStatus.textContent = `File uploaded successfully. Path: ${result.file_path}`;
             } else {
-                alert(result.error);
+                uploadStatus.textContent = `Error: ${result.error}`;
             }
-        }
+        });
 
-        // Function to download a file
-        function downloadFile() {
-            const filePath = document.querySelector("#file-path").value;
-            if (!filePath) {
-                alert("Please enter a file path.");
-                return;
+        // Key Change Request
+        const keyChangeForm = document.getElementById("key-change-form");
+        const keyChangeStatus = document.getElementById("key-change-status");
+
+        keyChangeForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const response = await fetch("/request_key_change", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Username": "user1", // Replace with actual username
+                    "X-Challenge": "challenge", // Replace with actual challenge
+                    "X-Response": "response", // Replace with actual response
+                },
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                keyChangeStatus.textContent = `Key change successful. New Key: ${result.new_key}`;
+            } else {
+                keyChangeStatus.textContent = `Error: ${result.error}`;
             }
-            window.location.href = `/download?file_path=${encodeURIComponent(filePath)}`;
-        }
-
-        // Toggle dark mode
-        function toggleDarkMode() {
-            document.body.classList.toggle("dark-mode");
-        }
-
-        // Initialize the dashboard when the page loads
-        document.addEventListener("DOMContentLoaded", () => {
-            // Initialize charts
-            const ctx1 = document.getElementById("cpuChart").getContext("2d");
-            const ctx2 = document.getElementById("memoryChart").getContext("2d");
-            const ctx3 = document.getElementById("processChart").getContext("2d");
-
-            const chartOptions = {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                    },
-                },
-            };
-
-            cpuChart = new Chart(ctx1, {
-                type: "bar",
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: "CPU Usage (%)",
-                        data: [],
-                        backgroundColor: "rgba(54, 162, 235, 0.5)",
-                        borderColor: "rgba(54, 162, 235, 1)",
-                        borderWidth: 1,
-                    }],
-                },
-                options: chartOptions,
-            });
-
-            memoryChart = new Chart(ctx2, {
-                type: "bar",
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: "Memory Usage (%)",
-                        data: [],
-                        backgroundColor: "rgba(255, 99, 132, 0.5)",
-                        borderColor: "rgba(255, 99, 132, 1)",
-                        borderWidth: 1,
-                    }],
-                },
-                options: chartOptions,
-            });
-
-            processChart = new Chart(ctx3, {
-                type: "bar",
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: "Process Count",
-                        data: [],
-                        backgroundColor: "rgba(75, 192, 192, 0.5)",
-                        borderColor: "rgba(75, 192, 192, 1)",
-                        borderWidth: 1,
-                    }],
-                },
-                options: chartOptions,
-            });
-
-            // Update the node list
-            updateNodeList();
-
-            // Update the dashboard every 5 seconds
-            setInterval(updateDashboard, 5000);
-            updateDashboard(); // Initial update
         });
     </script>
-</head>
-<body>
-    <div class="container">
-        <h1>Server Stats Dashboard</h1>
-        <button class="btn-custom" onclick="toggleDarkMode()">Toggle Dark Mode</button>
-
-        <!-- Charts and Server Input -->
-        <div class="row">
-            <!-- Left Column (2 charts) -->
-            <div class="col col-2">
-                <div class="chart-container">
-                    <canvas id="cpuChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="memoryChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Right Column (1 chart and server input) -->
-            <div class="col col-1">
-                <div class="chart-container">
-                    <canvas id="processChart"></canvas>
-                </div>
-
-                <!-- Server Input -->
-                <h2>Execute Command</h2>
-                <div>
-                    <label for="node-select">Node:</label>
-                    <select id="node-select" class="form-control-custom">
-                        <option value="">Local</option>
-                        <!-- Node options will be populated by JavaScript -->
-                    </select>
-                    <input type="text" id="command-input" class="form-control-custom" placeholder="Enter command">
-                    <button class="btn-custom" onclick="executeCommand()">Execute</button>
-                </div>
-
-                <!-- Command Output -->
-                <div id="command-output"></div>
-            </div>
-        </div>
-
-        <!-- File Upload and Download -->
-        <div style="margin-top: 20px;">
-            <h2>File Upload</h2>
-            <input type="file" id="file-input" class="form-control-custom">
-            <button class="btn-custom" onclick="uploadFile()">Upload</button>
-
-            <h2>File Download</h2>
-            <input type="text" id="file-path" class="form-control-custom" placeholder="Enter file path">
-            <button class="btn-custom" onclick="downloadFile()">Download</button>
-        </div>
-    </div>
 </body>
 </html>
