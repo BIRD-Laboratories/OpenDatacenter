@@ -9,6 +9,7 @@ import ssl
 import tempfile
 import re
 from flask import Flask, render_template, jsonify, request, Response, send_file, abort
+import pandas as pd
 
 # Variables
 PORT = 8443
@@ -67,6 +68,28 @@ def nodes():
         return jsonify({"nodes": nodes})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/stream", methods=["POST"])
+def stream():
+    """Execute a command and stream the output."""
+    data = request.json
+    command = data.get("command")
+    node = data.get("node")
+
+    def generate():
+        if node:
+            ssh_command = f"ssh {node} {command}"
+        else:
+            ssh_command = command
+
+        process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        for line in process.stdout:
+            yield line
+        for line in process.stderr:
+            yield line
+
+    return Response(generate(), content_type='text/plain')
 
 @app.route("/download")
 def download_file():
