@@ -8,8 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import ssl
 import tempfile
 import re
-from flask import Flask, render_template, jsonify, request, Response
-import pandas as pd
+from flask import Flask, render_template, jsonify, request, Response, send_file, abort
 
 # Variables
 PORT = 8443
@@ -69,27 +68,23 @@ def nodes():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/stream", methods=["POST"])
-def stream():
-    """Execute a command and stream the output."""
-    data = request.json
-    command = data.get("command")
-    node = data.get("node")
+@app.route("/download")
+def download_file():
+    """Serve a file for download."""
+    try:
+        # Get the file path from the query parameter
+        file_path = request.args.get("file_path")
+        if not file_path:
+            return jsonify({"error": "File path is required"}), 400
 
-    def generate():
-        if node:
-            ssh_command = f"ssh {node} {command}"
-        else:
-            ssh_command = command
+        # Validate the file path
+        if not os.path.exists(file_path):
+            return jsonify({"error": "File not found"}), 404
 
-        process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        for line in process.stdout:
-            yield line
-        for line in process.stderr:
-            yield line
-
-    return Response(generate(), content_type='text/plain')
+        # Send the file for download
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 def run_flask_app():
     """Run the Flask web interface on a different port."""
@@ -120,10 +115,21 @@ def collect_stats():
                 if not node:
                     continue
                 try:
-                    cpu_mem = subprocess.check_output(["ssh", node, "ps -A -o %cpu,%mem | awk '{cpu+=$1; mem+=$2} END {print cpu, mem}'"]).decode().strip()
+                    # Collect CPU and memory usage
+                    cpu_mem = subprocess.check_output(
+                        ["ssh", node, "ps -A -o %cpu,%mem | awk '{cpu+=$1; mem+=$2} END {print cpu, mem}'"]
+                    ).decode().strip()
                     cpu_usage, memory_usage = cpu_mem.split()
-                    process_count = subprocess.check_output(["ssh", node, "ps -A --no-headers | wc -l"]).decode().strip()
+
+                    # Collect process count
+                    process_count = subprocess.check_output(
+                        ["ssh", node, "ps -A --no-headers | wc -l"]
+                    ).decode().strip()
+
+                    # Get current timestamp
                     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+                    # Write stats to CSV
                     writer.writerow([node, timestamp, cpu_usage, memory_usage, process_count])
                 except subprocess.CalledProcessError as e:
                     print(f"Error collecting stats from {node}: {e}")
@@ -133,15 +139,23 @@ def setup_ftp_on_node(node, username, password_hash):
     try:
         # Install vsftpd if not already installed
         subprocess.run(["ssh", node, "sudo apt-get update && sudo apt-get install -y vsftpd"], check=True)
+
         # Configure vsftpd
-        subprocess.run(["ssh", node, "echo -e 'anonymous_enable=NO\\nlocal_enable=YES\\nwrite_enable=YES\\nlocal_umask=022\\nchroot_local_user=YES\\nlisten=YES\\nlisten_ipv6=NO' | sudo tee /etc/vsftpd.conf"], check=True)
+        subprocess.run([
+            "ssh", node,
+            "echo -e 'anonymous_enable=NO\\nlocal_enable=YES\\nwrite_enable=YES\\nlocal_umask=022\\nchroot_local_user=YES\\nlisten=YES\\nlisten_ipv6=NO' | sudo tee /etc/vsftpd.conf"
+        ], check=True)
+
         # Restart vsftpd
         subprocess.run(["ssh", node, "sudo systemctl restart vsftpd"], check=True)
+
         # Create FTP user and set password
         subprocess.run(["ssh", node, f"sudo useradd -m -s /bin/bash {username}"], check=True)
         subprocess.run(["ssh", node, f"echo '{username}:{password_hash}' | sudo chpasswd -e"], check=True)
+
         # Allow FTP user to access a specific directory
         subprocess.run(["ssh", node, f"sudo usermod -d /home/{username} {username}"], check=True)
+
         print(f"FTP server set up on {node} for user {username}")
     except subprocess.CalledProcessError as e:
         print(f"Error setting up FTP on {node}: {e}")
