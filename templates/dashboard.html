@@ -14,6 +14,9 @@
         }
         .section {
             margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
         }
         .form-group {
             margin-bottom: 15px;
@@ -53,33 +56,41 @@
 <body>
     <h1>Server Dashboard</h1>
 
-    <!-- Real-Time Stats Section -->
+    <!-- Register User Section -->
     <div class="section">
-        <h2>Real-Time System Stats</h2>
-        <div class="chart-container">
-            <canvas id="stats-chart"></canvas>
-        </div>
-    </div>
-
-    <!-- Job Submission Section -->
-    <div class="section">
-        <h2>Submit a Job</h2>
-        <form id="job-form">
+        <h2>Register User</h2>
+        <form id="register-form">
             <div class="form-group">
-                <label for="job-data">Job Data:</label>
-                <textarea id="job-data" name="job-data" rows="4" required></textarea>
+                <label for="register-username">Username:</label>
+                <input type="text" id="register-username" name="username" required>
             </div>
             <div class="form-group">
-                <button type="submit">Submit Job</button>
+                <label for="register-password">Password:</label>
+                <input type="password" id="register-password" name="password" required>
+            </div>
+            <div class="form-group">
+                <button type="submit">Register</button>
             </div>
         </form>
-        <div class="status-message" id="job-status"></div>
+        <div class="status-message" id="register-status"></div>
     </div>
 
-    <!-- File Upload Section -->
+    <!-- Upload File Section -->
     <div class="section">
-        <h2>Upload a File</h2>
+        <h2>Upload File</h2>
         <form id="upload-form">
+            <div class="form-group">
+                <label for="upload-username">Username:</label>
+                <input type="text" id="upload-username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="upload-challenge">Challenge:</label>
+                <input type="text" id="upload-challenge" name="challenge" required>
+            </div>
+            <div class="form-group">
+                <label for="upload-response">Response:</label>
+                <input type="text" id="upload-response" name="response" required>
+            </div>
             <div class="form-group">
                 <label for="file">Select File:</label>
                 <input type="file" id="file" name="file" required>
@@ -91,15 +102,62 @@
         <div class="status-message" id="upload-status"></div>
     </div>
 
-    <!-- Key Change Request Section -->
+    <!-- Submit Job Section -->
+    <div class="section">
+        <h2>Submit Job</h2>
+        <form id="job-form">
+            <div class="form-group">
+                <label for="job-username">Username:</label>
+                <input type="text" id="job-username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="job-challenge">Challenge:</label>
+                <input type="text" id="job-challenge" name="challenge" required>
+            </div>
+            <div class="form-group">
+                <label for="job-response">Response:</label>
+                <input type="text" id="job-response" name="response" required>
+            </div>
+            <div class="form-group">
+                <label for="job-data">Job Data:</label>
+                <textarea id="job-data" name="job-data" rows="4" required></textarea>
+            </div>
+            <div class="form-group">
+                <button type="submit">Submit Job</button>
+            </div>
+        </form>
+        <div class="status-message" id="job-status"></div>
+    </div>
+
+    <!-- Request Key Change Section -->
     <div class="section">
         <h2>Request Key Change</h2>
         <form id="key-change-form">
+            <div class="form-group">
+                <label for="key-change-username">Username:</label>
+                <input type="text" id="key-change-username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="key-change-challenge">Challenge:</label>
+                <input type="text" id="key-change-challenge" name="challenge" required>
+            </div>
+            <div class="form-group">
+                <label for="key-change-response">Response:</label>
+                <input type="text" id="key-change-response" name="response" required>
+            </div>
             <div class="form-group">
                 <button type="submit">Request Key Change</button>
             </div>
         </form>
         <div class="status-message" id="key-change-status"></div>
+    </div>
+
+    <!-- Real-Time Stats Section -->
+    <div class="section">
+        <h2>Real-Time System Stats</h2>
+        <div class="chart-container">
+            <canvas id="stats-chart"></canvas>
+        </div>
     </div>
 
     <script>
@@ -148,6 +206,122 @@
             },
         });
 
+        // Register User Form
+        const registerForm = document.getElementById("register-form");
+        const registerStatus = document.getElementById("register-status");
+
+        registerForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const username = document.getElementById("register-username").value;
+            const password = document.getElementById("register-password").value;
+
+            const response = await fetch("/register", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ username, password }),
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                registerStatus.textContent = result.message;
+            } else {
+                registerStatus.textContent = `Error: ${result.error}`;
+            }
+        });
+
+        // Upload File Form
+        const uploadForm = document.getElementById("upload-form");
+        const uploadStatus = document.getElementById("upload-status");
+
+        uploadForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const username = document.getElementById("upload-username").value;
+            const challenge = document.getElementById("upload-challenge").value;
+            const response = document.getElementById("upload-response").value;
+            const fileInput = document.getElementById("file");
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const uploadResponse = await fetch("/upload", {
+                method: "POST",
+                headers: {
+                    "X-Username": username,
+                    "X-Challenge": challenge,
+                    "X-Response": response,
+                },
+                body: formData,
+            });
+
+            const result = await uploadResponse.json();
+            if (uploadResponse.ok) {
+                uploadStatus.textContent = result.message;
+            } else {
+                uploadStatus.textContent = `Error: ${result.error}`;
+            }
+        });
+
+        // Submit Job Form
+        const jobForm = document.getElementById("job-form");
+        const jobStatus = document.getElementById("job-status");
+
+        jobForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const username = document.getElementById("job-username").value;
+            const challenge = document.getElementById("job-challenge").value;
+            const response = document.getElementById("job-response").value;
+            const jobData = document.getElementById("job-data").value;
+
+            const response = await fetch("/submit_job", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Username": username,
+                    "X-Challenge": challenge,
+                    "X-Response": response,
+                },
+                body: JSON.stringify({ job_data: jobData }),
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                jobStatus.textContent = result.message;
+            } else {
+                jobStatus.textContent = `Error: ${result.error}`;
+            }
+        });
+
+        // Request Key Change Form
+        const keyChangeForm = document.getElementById("key-change-form");
+        const keyChangeStatus = document.getElementById("key-change-status");
+
+        keyChangeForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const username = document.getElementById("key-change-username").value;
+            const challenge = document.getElementById("key-change-challenge").value;
+            const response = document.getElementById("key-change-response").value;
+
+            const response = await fetch("/request_key_change", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Username": username,
+                    "X-Challenge": challenge,
+                    "X-Response": response,
+                },
+                body: JSON.stringify({ expose_externally: false }),
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                keyChangeStatus.textContent = result.message;
+            } else {
+                keyChangeStatus.textContent = `Error: ${result.error}`;
+            }
+        });
+
         // Real-Time Stats Streaming
         const eventSource = new EventSource("/stream_stats");
 
@@ -166,85 +340,10 @@
             statsChart.update();
         };
 
-        // Job Submission
-        const jobForm = document.getElementById("job-form");
-        const jobStatus = document.getElementById("job-status");
-
-        jobForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const jobData = document.getElementById("job-data").value;
-
-            const response = await fetch("/submit_job", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Username": "user1", // Replace with actual username
-                    "X-Challenge": "challenge", // Replace with actual challenge
-                    "X-Response": "response", // Replace with actual response
-                },
-                body: JSON.stringify({ job_data: jobData }),
-            });
-
-            const result = await response.json();
-            if (response.ok) {
-                jobStatus.textContent = `Job submitted successfully. Job ID: ${result.job_id}`;
-            } else {
-                jobStatus.textContent = `Error: ${result.error}`;
-            }
-        });
-
-        // File Upload
-        const uploadForm = document.getElementById("upload-form");
-        const uploadStatus = document.getElementById("upload-status");
-
-        uploadForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const fileInput = document.getElementById("file");
-            const formData = new FormData();
-            formData.append("file", fileInput.files[0]);
-
-            const response = await fetch("/upload", {
-                method: "POST",
-                headers: {
-                    "X-Username": "user1", // Replace with actual username
-                    "X-Challenge": "challenge", // Replace with actual challenge
-                    "X-Response": "response", // Replace with actual response
-                },
-                body: formData,
-            });
-
-            const result = await response.json();
-            if (response.ok) {
-                uploadStatus.textContent = `File uploaded successfully. Path: ${result.file_path}`;
-            } else {
-                uploadStatus.textContent = `Error: ${result.error}`;
-            }
-        });
-
-        // Key Change Request
-        const keyChangeForm = document.getElementById("key-change-form");
-        const keyChangeStatus = document.getElementById("key-change-status");
-
-        keyChangeForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-
-            const response = await fetch("/request_key_change", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Username": "user1", // Replace with actual username
-                    "X-Challenge": "challenge", // Replace with actual challenge
-                    "X-Response": "response", // Replace with actual response
-                },
-            });
-
-            const result = await response.json();
-            if (response.ok) {
-                keyChangeStatus.textContent = `Key change successful. New Key: ${result.new_key}`;
-            } else {
-                keyChangeStatus.textContent = `Error: ${result.error}`;
-            }
-        });
+        eventSource.onerror = function (error) {
+            console.error("Error connecting to /stream_stats:", error);
+            eventSource.close();
+        };
     </script>
 </body>
 </html>
