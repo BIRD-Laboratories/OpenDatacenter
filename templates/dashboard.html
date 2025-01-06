@@ -49,31 +49,17 @@
             width: 80%;
             margin: 20px auto;
         }
+        .parameter-explanation {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
     </style>
     <!-- Include Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <h1>Server Dashboard</h1>
-
-    <!-- Register User Section -->
-    <div class="section">
-        <h2>Register User</h2>
-        <form id="register-form">
-            <div class="form-group">
-                <label for="register-username">Username:</label>
-                <input type="text" id="register-username" name="username" required>
-            </div>
-            <div class="form-group">
-                <label for="register-password">Password:</label>
-                <input type="password" id="register-password" name="password" required>
-            </div>
-            <div class="form-group">
-                <button type="submit">Register</button>
-            </div>
-        </form>
-        <div class="status-message" id="register-status"></div>
-    </div>
 
     <!-- Upload File Section -->
     <div class="section">
@@ -82,18 +68,30 @@
             <div class="form-group">
                 <label for="upload-username">Username:</label>
                 <input type="text" id="upload-username" name="username" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> Your unique username. This identifies you to the server.
+                </div>
             </div>
             <div class="form-group">
                 <label for="upload-challenge">Challenge:</label>
                 <input type="text" id="upload-challenge" name="challenge" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> A random code provided by the server to verify your identity.
+                </div>
             </div>
             <div class="form-group">
                 <label for="upload-response">Response:</label>
                 <input type="text" id="upload-response" name="response" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> A code you generate using your password and the challenge. It proves your identity.
+                </div>
             </div>
             <div class="form-group">
                 <label for="file">Select File:</label>
                 <input type="file" id="file" name="file" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> The file you want to upload. It will be encrypted for security.
+                </div>
             </div>
             <div class="form-group">
                 <button type="submit">Upload File</button>
@@ -109,18 +107,30 @@
             <div class="form-group">
                 <label for="job-username">Username:</label>
                 <input type="text" id="job-username" name="username" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> Your unique username. This identifies you to the server.
+                </div>
             </div>
             <div class="form-group">
                 <label for="job-challenge">Challenge:</label>
                 <input type="text" id="job-challenge" name="challenge" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> A random code provided by the server to verify your identity.
+                </div>
             </div>
             <div class="form-group">
                 <label for="job-response">Response:</label>
                 <input type="text" id="job-response" name="response" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> A code you generate using your password and the challenge. It proves your identity.
+                </div>
             </div>
             <div class="form-group">
                 <label for="job-data">Job Data:</label>
                 <textarea id="job-data" name="job-data" rows="4" required></textarea>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> The data or instructions for the job you want the server to process.
+                </div>
             </div>
             <div class="form-group">
                 <button type="submit">Submit Job</button>
@@ -136,14 +146,23 @@
             <div class="form-group">
                 <label for="key-change-username">Username:</label>
                 <input type="text" id="key-change-username" name="username" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> Your unique username. This identifies you to the server.
+                </div>
             </div>
             <div class="form-group">
                 <label for="key-change-challenge">Challenge:</label>
                 <input type="text" id="key-change-challenge" name="challenge" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> A random code provided by the server to verify your identity.
+                </div>
             </div>
             <div class="form-group">
                 <label for="key-change-response">Response:</label>
                 <input type="text" id="key-change-response" name="response" required>
+                <div class="parameter-explanation">
+                    <strong>What is this?</strong> A code you generate using your password and the challenge. It proves your identity.
+                </div>
             </div>
             <div class="form-group">
                 <button type="submit">Request Key Change</button>
@@ -204,31 +223,6 @@
                     },
                 },
             },
-        });
-
-        // Register User Form
-        const registerForm = document.getElementById("register-form");
-        const registerStatus = document.getElementById("register-status");
-
-        registerForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const username = document.getElementById("register-username").value;
-            const password = document.getElementById("register-password").value;
-
-            const response = await fetch("/register", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ username, password }),
-            });
-
-            const result = await response.json();
-            if (response.ok) {
-                registerStatus.textContent = result.message;
-            } else {
-                registerStatus.textContent = `Error: ${result.error}`;
-            }
         });
 
         // Upload File Form
