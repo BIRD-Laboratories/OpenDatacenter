@@ -85,14 +85,6 @@ The system automatically:
 - Cleans up inactive sessions after 15 minutes
 - Maintains activity logs in `instance_logs/`
 
-## License
-
-OpenDatacenter is released under the MIT License. See LICENSE file for details.
-
-## Contributing
-
-Contributions are welcome! Please read our [contribution guidelines](CONTRIBUTING.md) before submitting pull requests.
-
 ## Support
 
 For support and questions, please open an issue in the GitHub repository.
